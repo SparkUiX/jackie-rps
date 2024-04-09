@@ -1,18 +1,27 @@
 {
   "name": "koishi-plugin-jackie-rps",
-  "description": "基于lobby的游戏",
-  "version": "0.0.1",
+  "description": "以成龙历险记为背景的多人对战游戏",
+  "version": "1.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
     "dist"
   ],
+  "contributors": [
+    "SparkUiX <thoe9008@outlook.com>"
+  ],
+  "homepage": "https://github.com/SparkUiX/Koishi-Plugin-jackie-rps",
   "license": "MIT",
   "keywords": [
     "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "rps",
+    "game",
+    "游戏",
+    "SparkUiX",
+    "jackie"
   ],
   "peerDependencies": {
     "koishi": "^4.17.2"

@@ -13,6 +13,7 @@ export class Player {
   RockAnimals: string;
   HorseTimes: number;
   DogTimes: number;
+  isInvisible: boolean;
 
   constructor(id: string,username: string, money: number ,health: number, position: string) {
     this.id = id;
@@ -29,6 +30,7 @@ export class Player {
     this.RockAnimals='human';
     this.HorseTimes=0;
     this.DogTimes=0;
+    this.isInvisible = false;
   }
 
 
@@ -42,7 +44,12 @@ export class Player {
     this.health = health;
   }
   addHealth(health: number) {
-    this.health += health;
+    if(this.isInvisible){
+      this.isInvisible=false;
+    return true
+    }
+    else
+      this.health += health
   }
   setPosition(position: string) {
     this.position = position;
