@@ -141,45 +141,64 @@ export const usage=`
 `
 
 
+interface GameSession {
+  gameStarted: boolean;
+  players: Player[];
+  playersWhoPlayed: string[];
+}
+
+const sessions = new Map<string, GameSession>();
 
 
+export function apply(ctx: Context) {
+  // 成龙历险记游戏相关指令的初始命令区
+  ctx.command('jackie-rps', '成龙历险记游戏相关指令');
 
-export function apply(ctx: Context,players:Player[]) {
+  // 获取或初始化指定会话的游戏状态
+  function getGameSession(sessionId: string): GameSession {
+    if (!sessions.has(sessionId)) {
+      sessions.set(sessionId, {
+        gameStarted: false,
+        players: [],
+        playersWhoPlayed: []
+      });
+    }
+    return sessions.get(sessionId);
+  }
 
-  //初始命令区
-  ctx.command('jackie-rps','成龙历险记游戏相关指令')
-  // let players: Player[] = []
-  let gameStarted = false;
-  let playersWhoPlayed = [];
-  function getAllPlayersInfo(): string {
-    return players.map(player => {
-      return `ID: ${player.username}, 金钱: ${player.money}, 血量: ${player.health}, 位置: ${player.position}, 高度: ${player.height}, 背包: ${player.backpack},剩余步数：${player.step}`;
+  // 获取所有玩家信息的函数，现在需要会话ID来获取特定会话的玩家信息
+  function getAllPlayersInfo(sessionId: string): string {
+    const gameSession = getGameSession(sessionId);
+    return gameSession.players.map(player => {
+      return `ID: ${player.username}, 金钱: ${player.money}, 血量: ${player.health}, 位置: ${player.position}, 高度: ${player.height}, 背包: ${player.backpack}, 剩余步数: ${player.step}`;
     }).join('\n');
   }
 
   // 创建游戏房间指令
-  ctx.command('jackie-rps/创建游戏', '创建游戏房间')
-    .action(() => {
-      if (gameStarted) return '游戏已经被创建了。';
-      gameStarted = true;
-      players = [];
-      return '游戏房间创建成功，请使用 “加入游戏” ';
-    });
-    ctx.command('jackie-rps/加入游戏', '加入游戏')
-    .action(({ session }) => {
-      if (!gameStarted) return '游戏尚未创建，请先创建房间。';
-      const existingPlayer = players.find(p => p.id === session.userId);
-      if (existingPlayer) return '你已经加入游戏了。';
-      // 创建新的Player对象
-      const HomePosition = session.username+'的家';//此处使用用户id作为位置名，在之后还有商店，广场两种位置，用字符串代替
-      const newPlayer = new Player(session.userId,session.username,15, 10, '广场');
-      players.push(newPlayer);
-      return `玩家[${session.username}](${session.userId})加入游戏成功。`;
-    });
-    
+  ctx.command('jackie-rps/创建游戏', '创建游戏房间').action(({ session }) => {
+    const sessionId = session.guildId // 获取当前会话ID
+    const currentSession = sessions.get(sessionId) || { gameStarted: false, players: [], playersWhoPlayed: []};
+    if (currentSession.gameStarted) return '游戏已经被创建了。';
+    currentSession.gameStarted = true;
+    sessions.set(sessionId, currentSession); // 更新会话状态
+    return '游戏房间创建成功，请使用 “加入游戏” ';
+  });
+  
+    ctx.command('jackie-rps/加入游戏', '加入游戏').action(({ session }) => {
+    const sessionId = session.guildId
+    const currentSession = sessions.get(sessionId) || { gameStarted: false, players: []};
+    if (!currentSession.gameStarted) return '游戏尚未创建，请先创建房间。';
+    if (currentSession.players.find(p => p.id === session.userId)) return '你已经加入游戏了。';
+  
+    const newPlayer = new Player(session.userId, session.username, 15, 10, '广场');
+    currentSession.players.push(newPlayer);
+    sessions.set(sessionId, currentSession); // 更新会话状态
+    return `玩家[${session.username}](${session.userId})加入游戏成功。`;
+  });
+  
     // ctx.command('开始游戏', '开始游戏')
     // .action(async ({ session }) => {
-    //   if (!gameStarted || players.length < 2) {
+    //   if (!gameStarted || currentSession.players.length < 2) {
     //     return '游戏尚未创建或玩家人数不足。';
     //   }
     //   gameStarted = true;
@@ -192,15 +211,20 @@ export function apply(ctx: Context,players:Player[]) {
     // });
     ctx.command('jackie-rps/玩家状态','列出当前所有玩家的状态')
     .action(({ session }) => {
-      return getAllPlayersInfo();
+      return getAllPlayersInfo(session.guildId);
     })
     ctx.command('jackie-rps/重置游戏', '将游戏恢复至未创建的初始状态')
-    .action(() => {
-      gameStarted = false;
-      players = [];
-      playersWhoPlayed = [];
+    .action(({ session }) => {
+      const sessionId = session.guildId // 获取当前会话ID
+      sessions.set(sessionId, {
+        gameStarted: false,
+        players: [],
+        playersWhoPlayed: []
+      });
       return '游戏已重置。';
-    })// 假设这是一个全局变量，用于追踪当前回合的出拳选择
+    });
+    
+    // 假设这是一个全局变量，用于追踪当前回合的出拳选择
     let currentRoundChoices = []; // 用于存储当前回合允许的两种出拳动作
 
 // 在游戏开始或新回合开始时调用这个函数来随机确定两种出拳动作
@@ -221,38 +245,39 @@ function RandomChoice() {
 initializeRoundChoices();
     ctx.command('jackie-rps/出拳', '玩家出拳')
       .action(({ session }) => {
-
-        if (!gameStarted) return '游戏尚未开始，请等待房间创建。';
+        const sessionId = session.guildId
+        const currentSession = sessions.get(sessionId);
+        if (!currentSession.gameStarted) return '游戏尚未开始，请等待房间创建。';
 
 // 查找当前session用户的索引
-const playerIndex = players.findIndex(p => p.id === session.userId);
+const playerIndex = currentSession.players.findIndex(p => p.id === session.userId);
 // 如果玩家未找到，即playerIndex为-1
 if(playerIndex === -1) return '你尚未加入游戏。';
 
 // 获取当前玩家
-const player = players[playerIndex];
+const player = currentSession.players[playerIndex];
 
 // 检查玩家是否已死
 if(player.isDead) return '你已经出局，不能出拳。';
 
 // 检查是否有玩家尚未完成操作
-if(players.find(p => p.step > 0 && !p.isDead)) return '有玩家未结束操作，请等待';
+if(currentSession.players.find(p => p.step > 0 && !p.isDead)) return '有玩家未结束操作，请等待';
 
 // 检查当前玩家是否已出拳
-if (playersWhoPlayed.includes(session.userId)) {
+if (currentSession.playersWhoPlayed.includes(session.userId)) {
   return '你已经出拳了。';
 }
 
         let cq = ['石头', '剪刀', '布'];
         // 动态调整可选的出拳动作
-        let availableChoices = currentRoundChoices.filter(cq => !players.some(p => p.choice === cq));
+        let availableChoices = currentRoundChoices.filter(cq => !currentSession.players.some(p => p.choice === cq));
         if (availableChoices.length === 0 || availableChoices.length === currentRoundChoices.length) {
             // 如果所有选项都已被选择或者还未有选择，则所有选项都可用
             availableChoices = currentRoundChoices;
         }
         let choice = RandomChoice();
         player.choice = choice
-        playersWhoPlayed.push(session.userId);
+        currentSession.playersWhoPlayed.push(session.userId);
         session.send(`${player.username}出了：${cq[choice]}`);
     
         // // 确保后续玩家的选择受限于已选的动作
@@ -262,27 +287,30 @@ if (playersWhoPlayed.includes(session.userId)) {
     
         // 检查是否所有玩家都已出拳
         // 计算存活的玩家数量
-const alivePlayersCount = players.filter(p => !p.isDead).length;
+const alivePlayersCount = currentSession.players.filter(p => !p.isDead).length;
 
 // 检查是否所有存活的玩家都已出拳
-if (playersWhoPlayed.length === alivePlayersCount) {
-  session.send(judgeWinners());
+if (currentSession.playersWhoPlayed.length === alivePlayersCount) {
+  session.send(judgeWinners(currentSession));
   // 重置为下一回合做准备
   currentRoundChoices = [0, 1, 2];
-  playersWhoPlayed = []; // 根据需要重置已出拳玩家列表
+  currentSession.playersWhoPlayed = []; // 根据需要重置已出拳玩家列表
 }
 
       });
     
   ctx.command('jackie-rps/导出游戏状态','导出游戏状态')
   .alias('导出玩家状态')
-  .action(() => {
-    return exportGameState();
+  .action(({session}) => {
+    const sessionId = session.guildId
+    const currentSession = sessions.get(sessionId);
+    return exportGameState(currentSession);
   });
   ctx.command('jackie-rps/导入游戏状态 <gameStateJSON:string>','导入游戏状态')
-  .action((_,gameStateJSON) => {
-    
-    players = importGameState(gameStateJSON);
+  .action(({session},gameStateJSON) => {
+    const sessionId = session.guildId
+    const currentSession = sessions.get(sessionId);
+    currentSession.players = importGameState(gameStateJSON,currentSession);
     return '游戏状态已导入。';
   });
 
@@ -291,14 +319,14 @@ if (playersWhoPlayed.length === alivePlayersCount) {
 
 
   //判断胜负的逻辑
-  function judgeWinners() {
+  function judgeWinners(currentSession) {
     // 统计每种选择的玩家数
     let counts = [0, 0, 0]; // 分别对应石头(0), 剪刀(1), 布(2)
     let winners = [];
     let losers = [];
   
     // 获取玩家的出拳选择并统计
-    players.forEach(player => {
+    currentSession.players.forEach(player => {
       const choice = player.choice;
       counts[choice]++;
     });
@@ -309,8 +337,8 @@ if (playersWhoPlayed.length === alivePlayersCount) {
     // 当有三种或一种选择时，此回合无效
     if (choiceTypes !== 2) {
       // 重置出拳状态
-      playersWhoPlayed = [];
-      players.forEach(player => player.choice=null); 
+      currentSession.playersWhoPlayed = [];
+      currentSession.players.forEach(player => player.choice=null); 
       return '此回合无效，所有玩家请重新出拳。';
     }
   
@@ -344,7 +372,7 @@ if (winningChoice === 0 && losingChoice === 1) { // 石头赢剪刀
 
 // 然后使用这个winningChoice和losingChoice来决定谁是赢家和输家
 
-    players.forEach(player => {
+    currentSession.players.forEach((player: { choice: any }) => {
       if (player.choice === winningChoice) {
         winners.push(player);
       } else if (player.choice === losingChoice) {
@@ -363,8 +391,8 @@ if (winningChoice === 0 && losingChoice === 1) { // 石头赢剪刀
     });
   
     // 重置状态并准备下一轮
-    playersWhoPlayed = [];
-    players.forEach(player => player.choice=null); 
+    currentSession.playersWhoPlayed = [];
+    currentSession.players.forEach(player => player.choice=null); 
   
     // 进入下一状态
     StartAction(winners);
@@ -373,7 +401,7 @@ if (winningChoice === 0 && losingChoice === 1) { // 石头赢剪刀
     const winnerNames = winners.map(winner => winner.username).join(', ');
     currentRoundChoices = [];
 initializeRoundChoices();
-    return `此回合获胜的玩家：${winnerNames}，请胜者进行操作。\n\n当前玩家状态：\n${getAllPlayersInfo()}`;
+    return `此回合获胜的玩家：${winnerNames}，请胜者进行操作。\n\n当前玩家状态：\n${getAllPlayersInfo(currentSession)}`;
   }
   
   function StartAction(winners: Player[]) {
@@ -382,9 +410,9 @@ initializeRoundChoices();
 
   }
 //导出玩家游戏状态
-  function exportGameState() {
+  function exportGameState(currentSession: GameSession) {
     // 创建一个包含所有玩家状态的数组
-    const playersState = players.map(player => ({
+    const playersState = currentSession.players.map(player => ({
       id: player.id,
       username: player.username,
       health: player.health,
@@ -401,7 +429,7 @@ initializeRoundChoices();
   
     // 创建游戏状态对象
     const gameState = {
-      gameStarted,
+      gameStarted:currentSession.gameStarted,
       players: playersState
     };
   
@@ -412,15 +440,15 @@ initializeRoundChoices();
     return gameStateJSON;
   }
   //导入玩家游戏状态
-  function importGameState(gameStateJSON: string) {
+  function importGameState(gameStateJSON: string,currentSession: GameSession) {
     // 将JSON字符串解析为游戏状态对象
     const gameState = JSON.parse(gameStateJSON);
   
     // 恢复游戏是否开始的状态
-    gameStarted = gameState.gameStarted;
+    currentSession.gameStarted = gameState.gameStarted;
   
     // 恢复玩家状态
-    players = gameState.players.map((playerState: {
+    currentSession.players = gameState.currentSession.players.map((playerState: {
       isInVisible: boolean
       RockAnimals: string
       isDead: boolean
@@ -444,16 +472,18 @@ initializeRoundChoices();
       player.isInvisible = playerState.isInVisible;
       return player;
     });
-    return players
+    return currentSession.players
     //预留位置
   }
   
-  function CheckPlayers(){//检查是否只有最后一个玩家存活
-    return players.filter(p => !p.isDead).length==1
+  function CheckPlayers(currentSession){//检查是否只有最后一个玩家存活
+    return currentSession.players.filter(p => !p.isDead).length==1
   }
   function isWinner(session: Session<never, never, Context>){//重置游戏状态
-    if(CheckPlayers()){
-      players.forEach(p => {
+    const sessionId = session.guildId
+    const currentSession = sessions.get(sessionId);
+    if(CheckPlayers(currentSession)){
+      currentSession.players.forEach(p => {
         p.position=p.username+'的家'
         p.isDead=false
         p.health=10
@@ -463,7 +493,7 @@ initializeRoundChoices();
         p.RockAnimals='human'
       })
       session.send('场上仅剩一名玩家，回合重新开始')
-      session.send(getAllPlayersInfo())
+      session.send(getAllPlayersInfo(sessionId))
     }
   }
   
@@ -480,8 +510,13 @@ initializeRoundChoices();
   //通用操作
   ctx.command('jackie-rps/移动 [position:string]','移动到指定位置')
   .action(({ session },position) => {
-    const self = players.find(p => p.id === session.userId);
-    const athowid=players.find(p => p.id ===h.select(session.elements,'at')?.[0]?.attrs.id)?.username
+    const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
+    const self = currentSession.players.find(p => p.id === session.userId);
+    const athowid=currentSession.players.find(p => p.id ===h.select(session.elements,'at')?.[0]?.attrs.id)?.username
     let zzposition=position 
     if(athowid) 
       zzposition=athowid+'的家'
@@ -503,7 +538,12 @@ initializeRoundChoices();
 
   ctx.command('jackie-rps/出门','移动到广场')
   .action(({ session }) => {
-    const self = players.find(p => p.id === session.userId);
+    const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
+    const self = currentSession.players.find(p => p.id === session.userId);
     if (!self) return `你还没有加入游戏。`;
     if(self.isDead) return '你已经死亡'
     if(!(self.step>0)) return '你的当前步数不足'
@@ -516,7 +556,12 @@ initializeRoundChoices();
 
   ctx.command('jackie-rps/商店','移动到商店')
   .action(({ session }) => {
-    const self = players.find(p => p.id === session.userId);
+    const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
+    const self = currentSession.players.find(p => p.id === session.userId);
     if (!self) return `你还没有加入游戏。`;
     if(self.isDead) return '你已经死亡'
     if(!(self.step>0)) return '你的当前步数不足'
@@ -533,14 +578,19 @@ initializeRoundChoices();
     ctx.command('jackie-rps/购买 <item:string>','购买指定物品')
     .alias('买')
     .action(({ session },item) => {
+      const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
       const items=['鼠','牛','虎','兔','龙','蛇','马','羊','猴','鸡','狗','猪']
       if(!items.includes(item)) return '购买的物品不存在'
-        const self = players.find(p => p.id === session.userId);
+        const self = currentSession.players.find(p => p.id === session.userId);
         if (!self) {
             return `你还没有加入游戏。`;
         }
         if (self.money < 15) return '金钱不足，无法购买。';
-        if(players.find(p=>p.backpack.find(p=>p==item+'符咒'))) return '该符咒已经被购买'
+        if(currentSession.players.find(p=>p.backpack.find(p=>p==item+'符咒'))) return '该符咒已经被购买'
         if(!(self.step>0)) return '你的当前步数不足'
         if(self.isDead) return '你已经死亡'
         self.addToBackpack(item+'符咒');
@@ -563,16 +613,21 @@ initializeRoundChoices();
     .alias('卖')
     .alias('当')
     .action(({ session },item) => {
+      const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
       const items=['鼠','牛','虎','兔','龙','蛇','马','羊','猴','鸡','狗','猪']
       if(!items.includes(item)) return '卖出的物品不存在'
       
-        const self = players.find(p => p.id === session.userId);
+        const self = currentSession.players.find(p => p.id === session.userId);
         if (!self) {
           return `你还没有加入游戏。`;
       }
         if(!self.backpack.find(p=>p==item+'符咒')) return '你没有该物品'
         // if (self.money < 15) return '金钱不足，无法购买。';
-        // if(players.find(p=>p.backpack.find(p=>p==item+'符咒'))) return '该符咒已经被购买'
+        // if(currentSession.players.find(p=>p.backpack.find(p=>p==item+'符咒'))) return '该符咒已经被购买'
         if(!(self.step>0)) return '你的当前步数不足'
         if(self.isDead) return '你已经死亡'
         self.removeFromBackpack(item+'符咒');
@@ -595,13 +650,18 @@ initializeRoundChoices();
     ctx.command('jackie-rps/踢出 <target:user>','将指定目标踢出商店')
     .alias('踢')
     .action(({ session }) => {
+      const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
       const athowid=h.select(session.elements,'at')?.[0]?.attrs.id//获取@的用户id
-        const self =players.find(p => p.id === session.userId);//获取自己
+        const self =currentSession.players.find(p => p.id === session.userId);//获取自己
         
         if (!self) {
             return '你还没有加入游戏。';
         }
-          const target = players.find(p => p.id === athowid);//获取@的用户目标
+          const target = currentSession.players.find(p => p.id === athowid);//获取@的用户目标
             if (!target) {
                 return '目标不存在';
             }
@@ -617,14 +677,19 @@ initializeRoundChoices();
 
         ctx.command('jackie-rps/敲 <target:user>','对指定目标造成1伤害')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
           const athowid=h.select(session.elements,'at')?.[0]?.attrs.id//获取@的用户id
-            const self =players.find(p => p.id === session.userId);//获取自己
+            const self =currentSession.players.find(p => p.id === session.userId);//获取自己
             
             if (!self) {
                 return '你还没有加入游戏。';
             }
 
-              const target = players.find(p => p.id === athowid);//获取@的用户目标
+              const target = currentSession.players.find(p => p.id === athowid);//获取@的用户目标
                 if (!target) {
                     return '目标不存在';
                 }
@@ -668,13 +733,18 @@ initializeRoundChoices();
         //鼠
         ctx.command('jackie-rps/石化 <target:user>','使用鼠符咒将目标变为石头')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const self = players.find(p => p.id === session.userId);
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='鼠符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -694,13 +764,18 @@ initializeRoundChoices();
         //牛
         ctx.command('jackie-rps/石头 <target:user>','使用牛符咒对指定目标造成伤害')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const self = players.find(p => p.id === session.userId);
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='牛符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -730,9 +805,14 @@ initializeRoundChoices();
         });
         ctx.command('jackie-rps/扔 <target:user> [position:string]','使用牛符咒扔出指定目标')
         .action(({ session },_,position) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const athow2id=players.find(p => p.id ===h.select(session.elements,'at')?.[1]?.attrs.id)?.username
-            const self = players.find(p => p.id === session.userId);
+            const athow2id=currentSession.players.find(p => p.id ===h.select(session.elements,'at')?.[1]?.attrs.id)?.username
+            const self = currentSession.players.find(p => p.id === session.userId);
             let zzposition=position
             if(athow2id) 
             zzposition=athow2id+'的家'
@@ -740,7 +820,7 @@ initializeRoundChoices();
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='牛符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -774,8 +854,12 @@ initializeRoundChoices();
         .alias('分隔')
         .alias('分身')
         .action(({ session }) => {
-            
-            const self = players.find(p => p.id === session.userId);
+          const sessionId = session.guildId
+          const currentSession = sessions.get(sessionId);
+          if (!currentSession || !currentSession.gameStarted) {
+            return '游戏尚未创建或你还没有加入游戏。';
+          }
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
@@ -795,13 +879,18 @@ initializeRoundChoices();
         //龙
         ctx.command('jackie-rps/爆破 <target:user> ','使用龙符咒对范围内玩家造成伤害')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
           const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const self = players.find(p => p.id === session.userId);
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='龙符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if(!(self.step>0)) return '你的当前步数不足'
                 if(self.isDead) return '你已经死亡'
                   if (target.position === self.position && Math.abs(target.height - self.height) < 4) {
@@ -834,8 +923,12 @@ initializeRoundChoices();
         //蛇
         ctx.command('jackie-rps/隐身','使用蛇符咒隐身')
         .action(({ session }) => {
-            
-            const self = players.find(p => p.id === session.userId);
+          const sessionId = session.guildId
+          const currentSession = sessions.get(sessionId);
+          if (!currentSession || !currentSession.gameStarted) {
+            return '游戏尚未创建或你还没有加入游戏。';
+          }
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
@@ -853,8 +946,12 @@ initializeRoundChoices();
         ctx.command('jackie-rps/恢复','使用马符咒恢复血量')
         .alias('回复')
         .action(({ session }) => {
-            
-            const self = players.find(p => p.id === session.userId);
+          const sessionId = session.guildId
+          const currentSession = sessions.get(sessionId);
+          if (!currentSession || !currentSession.gameStarted) {
+            return '游戏尚未创建或你还没有加入游戏。';
+          }
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
@@ -873,13 +970,18 @@ initializeRoundChoices();
         // 猴
         ctx.command('jackie-rps/动物 <target:user>','使用猴符咒将目标变为小动物')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const self = players.find(p => p.id === session.userId);
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='猴符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -897,8 +999,12 @@ initializeRoundChoices();
         });
         ctx.command('jackie-rps/变回','将自己变回人类')
         .action(({ session }) => {
-            
-            const self = players.find(p => p.id === session.userId);
+          const sessionId = session.guildId
+          const currentSession = sessions.get(sessionId);
+          if (!currentSession || !currentSession.gameStarted) {
+            return '游戏尚未创建或你还没有加入游戏。';
+          }
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
@@ -916,13 +1022,18 @@ initializeRoundChoices();
         ctx.command('jackie-rps/浮空 <target:user>','使用鸡符咒将目标浮空')
         .alias('浮')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const self = players.find(p => p.id === session.userId);
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='鸡符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -941,15 +1052,20 @@ initializeRoundChoices();
         ctx.command('jackie-rps/下降 [target:user]','使用鸡符咒将目标下降或者自己下降')
         .alias('降')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const self = players.find(p => p.id === session.userId);
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
             
             if(athowid){
             if (self.backpack.find(p=>p=='鸡符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -976,13 +1092,18 @@ initializeRoundChoices();
         ctx.command('jackie-rps/摔 <target:user>','使用鸡符咒将目标摔下')
         .alias('摔下')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const self = players.find(p => p.id === session.userId);
+            const self = currentSession.players.find(p => p.id === session.userId);
             if (!self) {
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='鸡符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -1013,9 +1134,14 @@ initializeRoundChoices();
         });
         ctx.command('jackie-rps/浮到 <target:user> [position:string]','使用鸡符咒更改目标位置')
         .action(({ session },_,position) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id
-            const athow2id=players.find(p => p.id ===h.select(session.elements,'at')?.[1]?.attrs.id)?.username
-            const self = players.find(p => p.id === session.userId);
+            const athow2id=currentSession.players.find(p => p.id ===h.select(session.elements,'at')?.[1]?.attrs.id)?.username
+            const self = currentSession.players.find(p => p.id === session.userId);
             let zzposition=position
             if(athow2id) 
             zzposition=athow2id+'的家'
@@ -1023,7 +1149,7 @@ initializeRoundChoices();
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='鸡符咒')){
-                const target = players.find(p => p.id === athowid);
+                const target = currentSession.players.find(p => p.id === athowid);
                 if (!target) {
                     return '目标不存在';
                 }
@@ -1057,14 +1183,19 @@ initializeRoundChoices();
         ctx.command('jackie-rps/电 <target:user>','使用猪符咒对指定目标造成伤害')
         .alias('diu')
         .action(({ session }) => {
+          const sessionId = session.guildId
+  const currentSession = sessions.get(sessionId);
+  if (!currentSession || !currentSession.gameStarted) {
+    return '游戏尚未创建或你还没有加入游戏。';
+  }
             const athowid=h.select(session.elements,'at')?.[0]?.attrs.id//获取@的用户id
-            const self =players.find(p => p.id === session.userId);//获取自己
+            const self =currentSession.players.find(p => p.id === session.userId);//获取自己
             
             if (!self) {
                 return '你还没有加入游戏。';
             }
             if (self.backpack.find(p=>p=='猪符咒')){
-              const target = players.find(p => p.id === athowid);//获取@的用户目标
+              const target = currentSession.players.find(p => p.id === athowid);//获取@的用户目标
                 if (!target) {
                     return '目标不存在';
                 }

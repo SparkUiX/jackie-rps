@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-jackie-rps",
   "description": "以成龙历险记为背景的多人对战游戏",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
@@ -11,7 +11,7 @@
   "contributors": [
     "SparkUiX <thoe9008@outlook.com>"
   ],
-  "homepage": "https://github.com/SparkUiX/Koishi-Plugin-jackie-rps",
+  "homepage": "https://github.com/SparkUiX/jackie-rps",
   "license": "MIT",
   "keywords": [
     "chatbot",
