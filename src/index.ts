@@ -181,13 +181,13 @@ export function apply(ctx: Context) {
     if (currentSession.gameStarted) return '游戏已经被创建了。';
     currentSession.gameStarted = true;
     sessions.set(sessionId, currentSession); // 更新会话状态
-    return '游戏房间创建成功，请使用 “加入游戏” ';
+    return '游戏房间创建成功，请使用 “加入游戏”  或导入游戏状态';
   });
   
     ctx.command('jackie-rps/加入游戏', '加入游戏').action(({ session }) => {
     const sessionId = session.guildId
     const currentSession = sessions.get(sessionId) || { gameStarted: false, players: []};
-    if (!currentSession.gameStarted) return '游戏尚未创建，请先创建房间。';
+    if (!currentSession.gameStarted) return '游戏尚未创建，请先创建游戏。';
     if (currentSession.players.find(p => p.id === session.userId)) return '你已经加入游戏了。';
   
     const newPlayer = new Player(session.userId, session.username, 15, 10, '广场');
@@ -247,7 +247,7 @@ initializeRoundChoices();
       .action(({ session }) => {
         const sessionId = session.guildId
         const currentSession = sessions.get(sessionId);
-        if (!currentSession.gameStarted) return '游戏尚未开始，请等待房间创建。';
+        if (!currentSession.gameStarted) return '游戏尚未开始，请等待游戏创建。';
 
 // 查找当前session用户的索引
 const playerIndex = currentSession.players.findIndex(p => p.id === session.userId);
@@ -291,7 +291,7 @@ const alivePlayersCount = currentSession.players.filter(p => !p.isDead).length;
 
 // 检查是否所有存活的玩家都已出拳
 if (currentSession.playersWhoPlayed.length === alivePlayersCount) {
-  session.send(judgeWinners(currentSession));
+  session.send(judgeWinners(currentSession,sessionId));
   // 重置为下一回合做准备
   currentRoundChoices = [0, 1, 2];
   currentSession.playersWhoPlayed = []; // 根据需要重置已出拳玩家列表
@@ -309,7 +309,8 @@ if (currentSession.playersWhoPlayed.length === alivePlayersCount) {
   ctx.command('jackie-rps/导入游戏状态 <gameStateJSON:string>','导入游戏状态')
   .action(({session},gameStateJSON) => {
     const sessionId = session.guildId
-    const currentSession = sessions.get(sessionId);
+    const currentSession = sessions.get(sessionId)
+    if(!currentSession) return '游戏尚未创建，请先创建游戏。';
     currentSession.players = importGameState(gameStateJSON,currentSession);
     return '游戏状态已导入。';
   });
@@ -319,7 +320,7 @@ if (currentSession.playersWhoPlayed.length === alivePlayersCount) {
 
 
   //判断胜负的逻辑
-  function judgeWinners(currentSession) {
+  function judgeWinners(currentSession,sessionId) {
     // 统计每种选择的玩家数
     let counts = [0, 0, 0]; // 分别对应石头(0), 剪刀(1), 布(2)
     let winners = [];
@@ -338,7 +339,7 @@ if (currentSession.playersWhoPlayed.length === alivePlayersCount) {
     if (choiceTypes !== 2) {
       // 重置出拳状态
       currentSession.playersWhoPlayed = [];
-      currentSession.players.forEach(player => player.choice=null); 
+      currentSession.players.forEach((player: { choice: null }) => player.choice=null); 
       return '此回合无效，所有玩家请重新出拳。';
     }
   
@@ -401,7 +402,7 @@ if (winningChoice === 0 && losingChoice === 1) { // 石头赢剪刀
     const winnerNames = winners.map(winner => winner.username).join(', ');
     currentRoundChoices = [];
 initializeRoundChoices();
-    return `此回合获胜的玩家：${winnerNames}，请胜者进行操作。\n\n当前玩家状态：\n${getAllPlayersInfo(currentSession)}`;
+    return `此回合获胜的玩家：${winnerNames}，请胜者进行操作。\n\n当前玩家状态：\n${getAllPlayersInfo(sessionId)}`;
   }
   
   function StartAction(winners: Player[]) {
@@ -443,12 +444,12 @@ initializeRoundChoices();
   function importGameState(gameStateJSON: string,currentSession: GameSession) {
     // 将JSON字符串解析为游戏状态对象
     const gameState = JSON.parse(gameStateJSON);
-  
+    
     // 恢复游戏是否开始的状态
     currentSession.gameStarted = gameState.gameStarted;
   
     // 恢复玩家状态
-    currentSession.players = gameState.currentSession.players.map((playerState: {
+    currentSession.players = gameState.players.map((playerState: {
       isInVisible: boolean
       RockAnimals: string
       isDead: boolean
@@ -523,6 +524,7 @@ initializeRoundChoices();
     if (!self) return `你还没有加入游戏。`;
     if(self.isDead) return '你已经死亡'
     if(!(self.step>0)) return '你的当前步数不足'
+    if(!zzposition) return '请输入正确的位置'
     if(self.backpack.find(p=>p=='牛符咒')||self.position=='广场'){//牛符咒可以无视距离，以及广场可以去向任意地方
       self.setPosition(zzposition);
       self.step--;
@@ -657,11 +659,15 @@ initializeRoundChoices();
   }
       const athowid=h.select(session.elements,'at')?.[0]?.attrs.id//获取@的用户id
         const self =currentSession.players.find(p => p.id === session.userId);//获取自己
+        //遍历玩家对象检查at的对象是否进入了游戏
+        // if (!currentSession.players.find(p => p.id === athowid)) return '目标不存在';
+
         
         if (!self) {
             return '你还没有加入游戏。';
         }
           const target = currentSession.players.find(p => p.id === athowid);//获取@的用户目标
+          session.send(target.username)
             if (!target) {
                 return '目标不存在';
             }
@@ -891,9 +897,10 @@ initializeRoundChoices();
             }
             if (self.backpack.find(p=>p=='龙符咒')){
                 const target = currentSession.players.find(p => p.id === athowid);
+                if(!target) return '目标不存在'
                 if(!(self.step>0)) return '你的当前步数不足'
                 if(self.isDead) return '你已经死亡'
-                  if (target.position === self.position && Math.abs(target.height - self.height) < 4) {
+                  if (target.position != self.position || Math.abs(target.height - self.height) < 4) return '与目标距离过远';
                     if(target.addHealth(-3)) 
                       
                       return `${target.username}已经隐身，抵挡此次伤害`
@@ -910,7 +917,7 @@ initializeRoundChoices();
                       isWinner(session)
                       return `${self.username}击败了${target.username},金钱+5`
                     };
-                  }
+                  
 
 
                 self.step--;
